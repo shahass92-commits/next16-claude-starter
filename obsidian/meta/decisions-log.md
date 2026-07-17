@@ -1,12 +1,107 @@
 ---
 tags: [meta, decision]
-updated: 2026-05-22
+updated: 2026-07-17
 ---
 
 # Decisions Log (ADRs)
 
 Architecture Decision Records. Each entry captures a choice, its context, and its
 consequences. Use [[templates/adr-note]] for new entries. Newest first.
+
+---
+
+## ADR-0015 — Strict three-tier design-token naming convention
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+
+**Context.** ADR-0004 made tokens the styling currency but never said what a token
+should be *called*. The starter shipped two tokens (`--background`,
+`--foreground`) and no grammar, so every project built from it would invent its
+own — defeating the point of a shared starter, since an agent moving between
+projects could not predict a token name without reading `globals.css`. Reference
+taken from [Mavik Labs — *Design Tokens in Tailwind v4*](https://www.maviklabs.com/blog/design-tokens-tailwind-v4-2026/)
+(three tiers: primitive → semantic → component).
+
+**Decision.** Adopt the three-tier model with an explicit grammar, documented in
+[[design-system]] and codified as AGENTS.md hard rule #4:
+
+| Tier | Grammar | Lives in |
+|------|---------|----------|
+| Primitive | `--raw-<category>-<name>[-<shade>]` | `:root` |
+| Semantic | `--<role>[-<variant>][-<state>]` | `:root` |
+| Component | `--<tw-namespace>-<component>[-<property>]` | `@theme inline` |
+
+- Only Tier 1 holds literals; Tier 2 names purpose, never appearance; Tier 2 is
+  the themeable layer (dark mode overrides there). No tier may be skipped.
+- Every `@theme inline` entry is exactly `--<namespace>-<role>: var(--<role>)`.
+  `inline` is load-bearing — it inlines the `var()` into each utility so Tier 2
+  overrides cascade; binding a literal freezes the value and breaks theming.
+- Tier 3 stays rare by design (ADR-0012 prefers a React component).
+
+**Two deliberate deviations from the reference article**, both verified against
+`tailwindcss` v4.3.3 by compiling a probe stylesheet:
+1. The article names primitives `--color-blue-500`. We prefix them `--raw-*` and
+   keep them out of `@theme` — under Tailwind v4 a `--color-*` entry *generates
+   utilities*, so naming primitives that way would emit a `bg-blue-500` for every
+   raw value and let markup bypass the semantic tier.
+2. The article lists `--duration-fast` / `--duration-normal` next to `--ease-*`.
+   **There is no `--duration-*` namespace in Tailwind v4** — the probe confirmed
+   `duration-fast` compiles to nothing and the variable is not even emitted from
+   `@theme inline`. Durations therefore stay Tier 2 only, consumed as
+   `duration-[var(--duration-fast)]`. (`--ease-*` *is* a real namespace and is used.)
+
+Retrofit is **minimal and unopinionated**: the existing background/foreground
+tokens were restructured into the tiers, and the primitives/durations/`--ease-entrance`
+/`--leading-display` they imply were added. **No brand palette was invented** —
+the convention is the deliverable; projects add `--raw-color-brand-*` themselves.
+
+**Consequences.** Token names are now predictable across every project from this
+starter. This **amends ADR-0004**, which said only that new values go in
+`globals.css` first — they must now also follow the tier grammar. `globals.css`
+grew a documented tier structure but stays bounded (ADR-0012). Existing markup is
+unaffected: `bg-background` / `text-foreground` still resolve, since the Tier 2
+names and `@theme` bindings kept their public names.
+
+---
+
+## ADR-0014 — Narrow CSS-transition exception for trivial state changes
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+
+**Context.** ADR-0002 banned CSS transitions outright to force every motion
+through the spring layer. In practice the ban's cost lands hardest where its
+benefit is lowest: a nav link fading its colour on hover had to become a client
+component wrapping `<Hover>` with a spring config, to animate one property that
+no user will ever interrupt or perceive as physical. The rule pushed teams toward
+either boilerplate or quiet rule-breaking.
+
+**Decision.** Keep hard rule #1 for all real motion; carve out one narrow,
+condition-bound exception. CSS `transition-*` is allowed **only** for simple,
+discrete state changes — `hover:` / `focus-visible:` / `active:` colour, opacity,
+border-colour, underline, and small decorative nudges — subject to three
+conditions, all required:
+
+1. **Token-backed timing** — `duration-[var(--duration-fast)] ease-entrance`; raw
+   ms/cubic-bezier values remain banned by hard rule #4.
+2. **`transition-*` only** — `@keyframes` stay banned outright. Anything long
+   enough to need keyframes is long enough to deserve a spring.
+3. **Utilities only** — the transition lives in `className`, never in a CSS file
+   (ADR-0012).
+
+Everything scroll-driven, revealing, layout-affecting, staggered, orchestrated,
+or interruptible remains spring-based; text remains [[text-engine]]. Anything
+past the allowed list is `<Hover>`.
+
+**Consequences.** A hover colour change no longer needs a client component — the
+common case gets cheaper and the spring layer keeps the cases it is actually good
+at. This **amends ADR-0002**, whose "CSS transitions are banned" is now "CSS
+keyframes are banned; transitions are limited to the list above". The exception is
+deliberately narrow and enumerated rather than a judgement call ("simple
+animations") so it cannot erode into general CSS animation. `--raw-duration-*` /
+`--duration-*` / `--ease-entrance` tokens exist to serve it (ADR-0015).
+[[animation-system]], [[design-system]], and [[ai-agent-guide]] updated to match.
 
 ---
 
@@ -338,15 +433,16 @@ canonical place to *understand* the project; root files stay canonical for *tool
 
 ## ADR-0002 — All motion is spring-based (`@react-spring/web`)
 
-- **Status:** Accepted (inherited from starter)
+- **Status:** Accepted (inherited from starter) — amended by ADR-0014
 - **Date:** Project baseline
 
 **Context.** Marketing sites need rich, interruptible, physically natural motion.
 CSS transitions and keyframes are rigid; competing libraries add weight.
 
 **Decision.** Use `@react-spring/web` for every animation. A custom component layer
-(`src/components/animation/springs/`) wraps it. CSS transitions, CSS keyframes, and
-`framer-motion` are **banned**.
+(`src/components/animation/springs/`) wraps it. CSS keyframes and `framer-motion`
+are **banned**. CSS transitions were banned outright here; **ADR-0014 narrows that
+to allow `transition-*` for trivial hover/focus state changes only.**
 
 **Consequences.** All animation goes through the [[animation-system]]. The springs
 folder is `#do-not-modify`. Text animation is delegated to [[text-engine]].
@@ -370,7 +466,7 @@ to test.
 
 ## ADR-0004 — Tailwind v4 with CSS-based config
 
-- **Status:** Accepted (inherited from starter)
+- **Status:** Accepted (inherited from starter) — amended by ADR-0012 and ADR-0015
 - **Date:** Project baseline
 
 **Context.** Tailwind v4 removes `tailwind.config.js` in favour of CSS-native config.
@@ -379,4 +475,5 @@ to test.
 No JS config file. Raw values in class names are banned. See [[design-system]].
 
 **Consequences.** Design tokens are the only styling currency. New values must be
-added to `globals.css` first.
+added to `globals.css` first — and, per ADR-0015, must follow the three-tier
+naming convention.

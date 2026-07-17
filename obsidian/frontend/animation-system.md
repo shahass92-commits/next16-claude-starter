@@ -1,13 +1,19 @@
 ---
 tags: [frontend, animation, stable, do-not-modify]
-updated: 2026-05-21
+updated: 2026-07-17
 ---
 
 # Animation System
 
 The core of this starter. **Every motion is spring-based** via `@react-spring/web`.
-CSS transitions, CSS keyframes, and `framer-motion` are **banned**. ADR:
-[[decisions-log]] ADR-0002.
+CSS keyframes and `framer-motion` are **banned**. ADR: [[decisions-log]] ADR-0002.
+
+> [!note] One narrow CSS exception (ADR-0014)
+> CSS `transition-*` is allowed for **simple, discrete state changes only** —
+> hover/focus colour, opacity, border, underline, small decorative nudges — with
+> token-backed timing (`duration-[var(--duration-fast)] ease-entrance`). Anything
+> scroll-driven, revealing, layout-affecting, staggered, or interruptible is a
+> spring. `@keyframes` stay banned. Rules and examples: [[design-system#Motion: springs first, CSS for trivial state]].
 
 > [!warning] #do-not-modify
 > `src/components/animation/springs/` and `src/hooks/animation/` are the animation
@@ -57,7 +63,8 @@ For **text**, do not use these — use [[text-engine]].
 | Element fades/slides in when scrolled into view | `<Inview from={} to={} mode="once">` |
 | Element moves continuously with scroll (parallax) | `<SpringTrigger mode="scrub">` |
 | Element snaps to a state at a scroll point | `<SpringTrigger mode="toggle">` |
-| Mouse hover animation | `<Hover from={} to={}>` |
+| Mouse hover animation — physical, or animating transforms | `<Hover from={} to={}>` |
+| Hover/focus **colour, opacity or border** change only | plain CSS `transition-*` (ADR-0014) — no component |
 | Just a 0–1 scroll progress value | `<ProgressTrigger onChange={}>` |
 | Heading / copy reveal | `<TextEngine>` → [[text-engine]] |
 

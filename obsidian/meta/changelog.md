@@ -1,12 +1,56 @@
 ---
 tags: [meta, changelog]
-updated: 2026-06-07
+updated: 2026-07-17
 ---
 
 # Changelog
 
 Chronological log of notable changes to the project. Newest first.
 This is a human-curated log — not a mirror of `git log`.
+
+## 2026-07-17
+
+- **TextEngine alignment & clipping rules documented** — two failure modes that
+  bite every TextEngine block, now written into [[text-engine]] (new *Alignment &
+  line-height* section), [[text-engine-reference]], and AGENTS.md hard rule #3.
+  **(1)** The container renders `display: flex; flex-wrap: wrap`, so words are
+  flex items and `text-align` cannot position them — a lone `text-center`
+  silently does nothing. Always pair `text-*` with `justify-*` on the tag
+  (`justify-between` is a trap: it spreads *words*, not lines). **(2)** `overflow`
+  sets `overflow: hidden` on `inline-block` wrap layers whose height comes from
+  `line-height`, so tight leading shaves descenders and accented caps — keep
+  leading ≥ 1.1 via the new `leading-display` token, never `leading-none` with
+  `overflow`, and watch for `text-5xl`+ which ship `line-height: 1`. Both fixes
+  are **classes on the `TextEngine` tag** — no wrapper component, no helper to
+  import. Verified against the `spring-text-engine@0.1.5` dist source.
+- **Strict three-tier token naming convention** — tokens now follow a fixed,
+  portable grammar so names are predictable across every project built from this
+  starter: `--raw-<category>-<name>` primitives → `--<role>` semantic →
+  `--<tw-namespace>-<role>: var(--<role>)` bindings in `@theme inline`. Only
+  Tier 1 holds literals; Tier 2 names purpose and is the themeable layer.
+  `globals.css` restructured accordingly — **no brand palette invented**, the
+  convention is the deliverable. Two deviations from the reference article,
+  verified by compiling a probe against `tailwindcss` v4.3.3: primitives are
+  `--raw-*` and stay out of `@theme` (a `--color-*` entry would generate
+  utilities and let markup skip the semantic tier), and **`--duration-*` is not a
+  Tailwind v4 namespace** — `duration-fast` compiles to nothing, so durations
+  stay Tier 2 and are used as `duration-[var(--duration-fast)]`. See
+  [[decisions-log]] ADR-0015 and [[design-system]].
+- **Narrow CSS-transition exception** — hard rule #1 no longer bans CSS
+  transitions outright. CSS `transition-*` is allowed for simple discrete state
+  changes only (hover/focus colour, opacity, border, small nudges), requiring
+  token-backed timing (`duration-[var(--duration-fast)] ease-entrance`),
+  `transition-*` only (`@keyframes` still banned), and utilities only. Everything
+  scroll-driven, revealing, staggered, or layout-affecting stays spring-based.
+  A hover colour fade no longer needs a client component wrapping `<Hover>`. See
+  [[decisions-log]] ADR-0014, [[animation-system]], [[design-system]].
+- **New tokens** — `--raw-color-white` / `--raw-color-neutral-100/900/950`,
+  `--raw-duration-fast/normal`, `--duration-fast/normal`, `--leading-display`
+  (1.1 — the TextEngine clip floor), `--ease-entrance`.
+- **Build & lint verified clean** — `yarn lint` and `yarn build` both pass with 0
+  errors and 0 warnings; no lint fixes were needed. Note: `yarn install` **fails
+  on Node 20.17** (`eslint-visitor-keys` requires `^20.19 || ^22.13 || >=24`) —
+  use Node ≥ 20.19; this repo was verified on 24.16.
 
 ## 2026-06-07
 

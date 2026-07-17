@@ -1,6 +1,6 @@
 ---
 tags: [workflow, ai, stable]
-updated: 2026-05-21
+updated: 2026-07-17
 ---
 
 # AI Agent Guide
@@ -33,15 +33,20 @@ consistent with it.
 
 ## Hard rules (never violate)
 
-1. **No CSS transitions/keyframes, no `framer-motion`.** All motion uses
-   `@react-spring/web` via the [[animation-system]]. Text uses [[text-engine]].
+1. **No CSS keyframes, no `framer-motion`.** All motion uses `@react-spring/web`
+   via the [[animation-system]]. Text uses [[text-engine]]. CSS `transition-*` is
+   allowed **only** for simple discrete state changes (hover/focus colour,
+   opacity, border) with token-backed timing — ADR-0014, see [[design-system]].
 2. **Do not modify** `src/components/animation/springs/` or `src/hooks/animation/`
    without explicit sign-off. They are the vendored animation engine —
    `#do-not-modify`. One authorized performance refactor has been made; see
    [[decisions-log]] ADR-0009. They stay protected by default.
 3. **Never `mode="manual"`** on `TextEngine` — use `always`/`once`/`forward`/`progress`.
-4. **No hardcoded values** — design tokens for styles (see [[design-system]]),
-   props/hooks for content (see [[component-conventions]]).
+   Its container is flex: pair `text-*` with `justify-*` to align it, and keep
+   leading ≥ 1.1 (`leading-display`) whenever `overflow` is set. See [[text-engine]].
+4. **No hardcoded values** — design tokens for styles, following the strict
+   three-tier naming convention (see [[design-system]]); props/hooks for content
+   (see [[component-conventions]]).
 5. **Routes delegate to views.** `app/**/page.tsx` imports only from `views/`.
 6. **No `any`.** Type everything. Run `yarn lint` before finishing.
 7. **Server Components by default**; `"use client"` only at leaves.

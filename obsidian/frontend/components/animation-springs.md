@@ -1,6 +1,6 @@
 ---
 tags: [frontend, animation, stable, do-not-modify]
-updated: 2026-05-21
+updated: 2026-07-17
 ---
 
 # Catalog — Spring Components
@@ -47,6 +47,14 @@ Tracks scroll position and emits a normalised **0–1 progress** value via
 
 Spring on mouse enter/leave. Disabled on mobile by default (`disableOnMobile.hover`
 is always `true`). `trigger` lets a different element fire the hover.
+
+> [!note] Not every hover needs this (ADR-0014)
+> A hover that only changes **colour, opacity, or border** is plain CSS —
+> `transition-colors duration-[var(--duration-fast)] ease-entrance
+> hover:text-foreground` — and needs no component at all. Reach for `<Hover>`
+> when the motion is physical or interruptible, animates transforms, or must be
+> driven from another element via `trigger`. See
+> [[design-system#Motion: springs first, CSS for trivial state]].
 
 ## `<Handle>` — `handle.tsx`
 

@@ -1,6 +1,6 @@
 ---
 tags: [frontend, animation, reference, stable]
-updated: 2026-05-21
+updated: 2026-07-17
 ---
 
 # TextEngine — Full Reference
@@ -86,6 +86,23 @@ Each word is wrapped in up to 3 nested layers. Layers are only rendered when the
 
 Each layer has an `In` target (enter state) and an `Out` target (exit state). Set the **out** state to the resting position (e.g. `{ y: 100, opacity: 0 }`) and the **in** state to the destination (e.g. `{ y: 0, opacity: 1 }`).
 
+### Container box model — two consequences
+
+The container renders as `display: flex; flex-wrap: wrap` and every word is a
+flex item; the wrap layers are `inline-block` spans sized by `line-height`.
+Two rules follow, both applied as classes on the `TextEngine` tag:
+
+- **`text-align` cannot align a TextEngine.** Flex items are positioned by
+  `justify-content`. Pair `text-center` with `justify-center` (and so on) — the
+  `justify-*` is what actually moves the words. `justify-between` spreads
+  *words*, not lines, and will look broken.
+- **`overflow` clips to the line-height box.** Leading below ~1.1 shaves
+  descenders and accented caps. Use `leading-display` (1.1) as the floor and
+  never `leading-none` with `overflow`.
+
+Full rationale, the alignment table, and the tight-leading escape hatch:
+[[text-engine#Alignment & line-height]].
+
 ---
 
 ## Modes
@@ -110,7 +127,7 @@ Each layer has an `In` target (enter state) and an `Out` target (exit state). Se
 | `enabled` | `boolean` | `true` | Master enable switch |
 | `tag` | `HtmlTags` | `"span"` | HTML tag for the container element |
 | `columnGap` | `number \| "inherit"` | `0.3` | Gap between words in `em` |
-| `overflow` | `boolean` | `false` | Sets `overflow: hidden` on wrapLine / wrapWord |
+| `overflow` | `boolean` | `false` | Sets `overflow: hidden` on wrapLine / wrapWord. **Requires leading ≥ 1.1** (`leading-display`) or glyphs clip — see [[text-engine#Alignment & line-height]] |
 | `rootMargin` | `string` | `"0px"` | IntersectionObserver `rootMargin` (non-progress modes only). e.g. `"-100px 0px"` |
 | `children` | `ReactNode` | — | Text and/or React elements to animate |
 
@@ -185,7 +202,7 @@ All optional `SpringConfig` objects. The shared config applies to both in and ou
 
 | Prop | Description |
 |------|-------------|
-| `className` | Container element |
+| `className` | Container element — the flex container. `justify-*` and `leading-*` go here |
 | `wrapLineClassName` | Every wrapLine span |
 | `lineClassName` | Every line span |
 | `wrapWordClassName` | Every wrapWord span |
