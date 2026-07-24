@@ -1,6 +1,6 @@
 ---
 tags: [workflow, ai, stable]
-updated: 2026-07-17
+updated: 2026-07-24
 ---
 
 # AI Agent Guide
@@ -50,6 +50,9 @@ consistent with it.
 5. **Routes delegate to views.** `app/**/page.tsx` imports only from `views/`.
 6. **No `any`.** Type everything. Run `yarn lint` before finishing.
 7. **Server Components by default**; `"use client"` only at leaves.
+8. **Performance request + a three.js/WebGL scene in the project → invoke the
+   `optimize-3d-scene` skill first.** It owns the order of fixes; don't improvise
+   one. See [[optimize-3d-scene]].
 
 ## Where to look
 
@@ -61,6 +64,7 @@ consistent with it.
 | How does animation work? | [[animation-system]], [[text-engine]] |
 | How do I style something? | [[design-system]] |
 | What components/hooks/utils exist? | [[components/animation-springs]], [[components/common]], [[hooks]], [[utils]] |
+| The 3D scene lags / needs optimising? | [[optimize-3d-scene]] |
 | Why was X decided? | [[decisions-log]] |
 
 ## After making changes
@@ -68,6 +72,20 @@ consistent with it.
 - New dependency → update [[tech-stack]] + [[changelog]].
 - Architectural choice → add an ADR to [[decisions-log]].
 - New component/hook/util → document it in the relevant catalog note.
+
+## Skills (`.claude/skills/`)
+
+Skills are packaged playbooks Claude Code loads on demand. They are **part of the
+workflow set** — each one is registered in this vault, so the routing rule is
+discoverable to any agent (and any human) reading the docs.
+
+| Skill | Invoke when | Vault note |
+|-------|-------------|------------|
+| `optimize-3d-scene` | A performance / jank / pre-ship request **and** the project renders a three.js or WebGL scene | [[optimize-3d-scene]] |
+
+Registering a new skill means: drop it in `.claude/skills/<name>/`, add a vault
+note under `workflows/`, link it from [[README]] and from the table above, and
+log it in [[changelog]].
 
 ## Automated enforcement (hooks)
 

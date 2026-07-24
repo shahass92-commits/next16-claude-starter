@@ -57,6 +57,11 @@ Notes link each other with `[[wikilinks]]` — follow them to navigate.
     a clean heading outline, named landmarks, real `button`/`a`, `alt` text,
     JSON-LD (not microdata), semantic `tag` on animation components. See
     `obsidian/frontend/html-semantics.md`.
+11. **3D performance → use the skill.** If the request is about performance,
+    jank, or shipping readiness **and** the project renders a three.js / WebGL
+    scene (`three` in `package.json`, or a canvas with a render loop), invoke the
+    **`optimize-3d-scene`** skill first and follow its order of fixes — don't
+    improvise one. See `obsidian/workflows/optimize-3d-scene.md`.
 
 ## After making changes
 

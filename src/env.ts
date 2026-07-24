@@ -11,13 +11,25 @@
 
 import { z } from "zod";
 
+/**
+ * Treat an empty env var as unset.
+ *
+ * `cp .env.example .env` leaves declared-but-blank keys (`CONTACT_ENDPOINT=`),
+ * which reach us as `""` — and `""` is not `undefined`, so an `.optional()`
+ * schema would reject it as "Invalid URL". Without this, the documented setup
+ * flow would break every optional variable the moment someone copied the
+ * example file.
+ */
+const optionalUrl = () =>
+  z.preprocess((v) => (v === "" ? undefined : v), z.url().optional());
+
 const publicSchema = z.object({
-  NEXT_PUBLIC_SITE_URL: z.url().optional(),
+  NEXT_PUBLIC_SITE_URL: optionalUrl(),
 });
 
 const serverSchema = z.object({
   /** Optional upstream the contact endpoint forwards leads to (CRM / webhook). */
-  CONTACT_ENDPOINT: z.url().optional(),
+  CONTACT_ENDPOINT: optionalUrl(),
 });
 
 /** Public env — safe to read anywhere (server or client). */

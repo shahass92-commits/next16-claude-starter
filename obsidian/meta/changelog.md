@@ -1,6 +1,6 @@
 ---
 tags: [meta, changelog]
-updated: 2026-07-17
+updated: 2026-07-24
 ---
 
 # Changelog
@@ -8,8 +8,57 @@ updated: 2026-07-17
 Chronological log of notable changes to the project. Newest first.
 This is a human-curated log — not a mirror of `git log`.
 
+## 2026-07-24
+
+- **`optimize-3d-scene` skill registered in the vault** — the new skill at
+  `.claude/skills/optimize-3d-scene/` is now a first-class part of the workflow
+  set, documented in [[optimize-3d-scene]] and linked from the
+  [[README|Map of Content]] and [[ai-agent-guide]].
+  **Routing rule (AGENTS.md hard rule #11):**
+  a performance / jank / pre-ship request on a project that renders a three.js
+  or WebGL scene must invoke the skill and follow its fourteen-step order — no
+  improvised fix list. The vault note also maps the skill's canonical patterns
+  onto primitives the starter *already* ships, so nothing gets duplicated:
+  `subscribeToTicker` (`src/lib/animation/ticker.ts`, ADR-0009) is the one
+  app-wide rAF loop the skill's §4/§5 ask for, `isBot()` (`src/utils/is-bot.ts`,
+  ADR-0010) is the §1 bot path, the Lenis scroll store is the §9/§10 scroll
+  source, `useDynamicInView` is the §4 visibility gate, and `lvh.ts` covers §13
+  sizing. Only device tiering (§2) has no local equivalent. The starter itself
+  carries **no `three` dependency** ([[tech-stack]] unchanged) — this applies to
+  projects built from it. ADR: [[decisions-log]] ADR-0016.
+- **Fixed a broken path inside the skill** — its closing "write it down" step
+  pointed at `obsidian/Meta/changelog.md` / `decisions-log.md` (capital `M`, and
+  an `open-questions.md` that does not exist here), so an agent following it
+  would have written to a non-existent folder. Rewritten against this vault's
+  actual `obsidian/meta/` layout.
+- **`ai-agent-guide` gained a Skills section** — how skills are registered
+  (drop in `.claude/skills/<name>/`, add a `workflows/` note, link from the MoC
+  and the skills table, log in the changelog), so the next skill follows the
+  same path.
+
 ## 2026-07-17
 
+- **README — one-prompt quick start** — added a copy-paste **⚡ Start in one
+  prompt** block at the top of the README: a single prompt that has Claude Code
+  (or Cursor) clone the starter, detach it from this repo's git history, read the
+  vault first, and run the default install. The manual [Getting started](../../README.md#getting-started)
+  path stays below for anyone who prefers it.
+- **Fixed: `cp .env.example .env` broke `/api/contact`** — surfaced by writing
+  that step into the quick-start prompt. Copying the example leaves
+  `CONTACT_ENDPOINT=` (blank), which reaches zod as `""`, and `""` is not
+  `undefined` — so `z.url().optional()` rejected it. The route returned **HTTP
+  400 `{"path":"CONTACT_ENDPOINT","message":"Invalid URL"}`**, misreporting a
+  *server misconfiguration* as the caller's bad input. `src/env.ts` now routes
+  optional URLs through an `optionalUrl()` helper that preprocesses `""` →
+  `undefined`. Verified end-to-end: a valid POST now returns 200, and genuinely
+  invalid payloads still return 400. Any new **optional** variable must use the
+  same helper — see [[environment-variables]].
+- **README — corrected clone URL & Node requirement** — step 1 pointed at
+  `github.com/textura/next16-claude-starter` (wrong org — the repo is
+  `textura-agency/…`), so the documented clone would 404. Also added the Node
+  floor (**22.13+**; 20.19+ works, 24 LTS recommended) — below it `yarn install`
+  fails outright on `eslint-visitor-keys` — and the missing
+  `cp .env.example .env` step.
 - **TextEngine alignment & clipping rules documented** — two failure modes that
   bite every TextEngine block, now written into [[text-engine]] (new *Alignment &
   line-height* section), [[text-engine-reference]], and AGENTS.md hard rule #3.

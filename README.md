@@ -10,6 +10,21 @@ v4, and a rem-based adaptive grid scales the design across every viewport.
 
 ---
 
+## ⚡ Start in one prompt
+
+Copy this into **Claude Code** (or Cursor) from an empty folder — it clones the
+starter, detaches it from this repo's history, and sets it up:
+
+```text
+Please clone https://github.com/textura-agency/next16-claude-starter and set it up as a fresh project. Remove connection to the current git and init a new one. Read the obsidian/ vault first (it's the single source of truth) — the README is the map. The hard rules are in obsidian/workflows/ai-agent-guide.md. Default install: yarn install (Node 22.13+), copy .env.example to .env, then yarn dev.
+```
+
+> [!TIP]
+> Prefer to do it by hand? The same steps are spelled out in
+> [Getting started](#getting-started) below.
+
+---
+
 ## ⭐ How to use this starter (with AI)
 
 The real value here isn't the boilerplate — it's the **documentation +
@@ -68,9 +83,13 @@ re-inject context on every turn. That bought-clean code costs tokens.
 
 ## Getting started
 
+> **Requires Node 22.13+** (Node 20.19+ also works; 24 LTS recommended).
+> On older versions `yarn install` fails outright — `eslint-visitor-keys`
+> requires `^20.19 || ^22.13 || >=24`.
+
 1. **Clone the template**
    ```bash
-   git clone https://github.com/textura/next16-claude-starter.git my-project
+   git clone https://github.com/textura-agency/next16-claude-starter.git my-project
    cd my-project
    ```
 
@@ -95,8 +114,12 @@ re-inject context on every turn. That bought-clean code costs tokens.
 4. **Install and run**
    ```bash
    yarn install
-   yarn dev      # http://localhost:3000
+   cp .env.example .env    # then fill in NEXT_PUBLIC_SITE_URL
+   yarn dev                # http://localhost:3000
    ```
+   Every value in `.env.example` has a safe fallback, so `yarn dev` works before
+   you fill anything in — see
+   [`environment-variables`](./obsidian/architecture/environment-variables.md).
 
 | Script | Purpose |
 |--------|---------|

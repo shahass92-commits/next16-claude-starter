@@ -1,6 +1,6 @@
 ---
 tags: [backend, api, stable]
-updated: 2026-05-22
+updated: 2026-07-17
 ---
 
 # API Architecture
@@ -73,6 +73,12 @@ auth helpers). Don't pre-build a service layer.
 
 Secret vars are **unprefixed** (`CONTACT_ENDPOINT`) — `NEXT_PUBLIC_` only for
 values safe in the browser. See [[environment-variables]].
+
+**Optional vars must treat `""` as unset** — use the `optionalUrl()` helper in
+`src/env.ts`, not a bare `.optional()`. A blank key copied from `.env.example`
+arrives as `""`, which `.optional()` rejects; the zod error then surfaces from
+`handle()` as a **400 "Invalid request payload"**, blaming the caller for a
+server misconfiguration. See [[environment-variables]].
 
 ## Calling endpoints from the client
 

@@ -1,12 +1,60 @@
 ---
 tags: [meta, decision]
-updated: 2026-07-17
+updated: 2026-07-24
 ---
 
 # Decisions Log (ADRs)
 
 Architecture Decision Records. Each entry captures a choice, its context, and its
 consequences. Use [[templates/adr-note]] for new entries. Newest first.
+
+---
+
+## ADR-0016 — Skills are registered in the vault, not just dropped in `.claude/`
+
+- **Status:** Accepted
+- **Date:** 2026-07-24
+
+**Context.** The first Claude Code skill for this starter —
+`optimize-3d-scene` — arrived as a folder under `.claude/skills/`. A skill there
+is discoverable to Claude Code *at runtime*, but it is invisible to the vault:
+nothing in `obsidian/` said it existed, when to reach for it, or how it relates
+to the hard rules. That contradicts ADR-0006 (the vault is the single source of
+truth) and leaves the invocation decision to model judgement — exactly the kind
+of thing this project pins down in writing. A performance request on a
+scene-carrying project would otherwise get whatever fix order the agent invented
+that day, when the skill exists precisely because the order matters (audit →
+bot path → tiering → prewarm → visibility gate → budgets → fill).
+
+**Decision.** A skill is only "installed" once it is registered:
+
+1. The skill lives at `.claude/skills/<name>/`.
+2. A vault note under `workflows/` documents what it does, its trigger
+   conditions, and how it maps onto this project's primitives.
+3. It is linked from [[README]]'s Map of Content and from the skills table in
+   [[ai-agent-guide]].
+4. If invocation should be non-optional, the routing rule goes into AGENTS.md's
+   hard rules — the shim every agent reads first.
+5. It is logged in [[changelog]].
+
+For `optimize-3d-scene` this became **hard rule #11**: a performance / jank /
+pre-ship request **and** a three.js or WebGL scene in the project → invoke the
+skill and follow its order. The vault note [[optimize-3d-scene]] additionally
+maps the skill's canonical patterns (which reference an external workspace) onto
+what the starter already ships — the shared ticker (ADR-0009) for its one-rAF
+rule, `isBot()` (ADR-0010) for its bot path, the Lenis store for scroll, the
+in-view hooks for its render gate — so following the skill does not produce a
+second copy of infrastructure that exists.
+
+**Consequences.** Skill invocation becomes a documented rule rather than a guess,
+and the routing survives model, tool and session changes because it lives in
+AGENTS.md and the vault, not only in the skill's own `description`. The cost is
+one extra note plus two index edits per skill — the same tax every component and
+hook already pays. The starter still ships **no `three` dependency**
+([[tech-stack]] unchanged); rule #11 is dormant until a project adds one. A
+wrong vault path inside the skill (`obsidian/Meta/…`, plus an `open-questions.md`
+this vault does not have) was corrected as part of registering it — registration
+is also the moment a skill gets checked against reality.
 
 ---
 
