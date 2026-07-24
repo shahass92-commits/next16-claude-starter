@@ -1,12 +1,26 @@
 ---
 tags: [meta, changelog]
-updated: 2026-07-24
+updated: 2026-07-25
 ---
 
 # Changelog
 
 Chronological log of notable changes to the project. Newest first.
 This is a human-curated log — not a mirror of `git log`.
+
+## 2026-07-25
+
+- **Released into the public domain (Unlicense)** — the starter now ships a root
+  `LICENSE.md` carrying the [Unlicense](https://unlicense.org) and declares
+  `"license": "Unlicense"` in `package.json`. Anyone may copy, modify, sell, or
+  redistribute it with **no attribution requirement and no copyright retained** —
+  the intent being that projects built from this starter can absorb it wholesale
+  without carrying a notice. Briefly authored as MIT in the same session and
+  changed before any release; the MIT attribution clause was the specific thing
+  being dropped, so a recognized no-attribution licence was chosen over an
+  edited MIT text. `"private": true` is unchanged, so npm publishing stays
+  blocked regardless — the licence governs redistribution of the source, not
+  registry availability.
 
 ## 2026-07-24
 

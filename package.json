@@ -2,6 +2,7 @@
   "name": "next16-claude-starter",
   "version": "0.1.0",
   "private": true,
+  "license": "Unlicense",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
