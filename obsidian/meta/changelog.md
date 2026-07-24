@@ -10,6 +10,30 @@ This is a human-curated log — not a mirror of `git log`.
 
 ## 2026-07-24
 
+- **`optimize-3d-scene` hardened from its first field run** — the skill was run
+  on a real raw-WebGL scene (no three.js, no scroll) and eight gaps came back,
+  ranked by the time each cost. Fixed in `SKILL.md` and `references/patterns.md`:
+  **§0** now ships a `getContext` hook so a non-three.js scene has counted
+  equivalents of `renderer.info` (`draws` / `verts` / `links[]` timestamps /
+  captured `attrs`) — previously §0 was unexecutable there — plus the
+  *measurement environment* rules that invalidate everything if missed
+  (production build only: dev's eager chunks fake a §1 failure and Strict Mode's
+  double-mount fakes 2 listeners and a halved fps; kill the stale server;
+  `waitUntil: "load"`, since `networkidle0` never fires against `next start`;
+  SwiftShader is not a GPU, so only counted quantities transfer). **§3** now
+  states that **§1 breaks it** — `dynamic(ssr: false)` pushes compilation past
+  hydration, measured at 5.0 s against a loader lifting at 2.36 s — and gains a
+  fifth stall cause (CPU decode/parse → **Worker**, 3.9 s measured) and the
+  `as="fetch"` preload credentials trap (only `use-credentials` + `include`
+  dedupes; the others silently download twice). **§5** admits `1000/30` measures
+  ~26 fps given the ticker's `<=` throttle. **§7** requires a decile ordering
+  check before truncating a baked point buffer (one was spatially sorted —
+  truncating would have deleted half the subject). **§13** splits canvas `lvh`
+  from content `dvh`. **§1**'s poster is rejustified — crawler screenshots and
+  the no-WebGL fallback, not layout stability — with two crops and the
+  `headers()` → static-prerender (`○`→`ƒ`) trade-off named. Unchanged on
+  purpose: the cheapest-first order, the canonical-file table, and "port, don't
+  invent". ADR: [[decisions-log]] ADR-0017.
 - **`optimize-3d-scene` skill registered in the vault** — the new skill at
   `.claude/skills/optimize-3d-scene/` is now a first-class part of the workflow
   set, documented in [[optimize-3d-scene]] and linked from the

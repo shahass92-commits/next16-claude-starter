@@ -24,7 +24,9 @@ Invoke the skill when **both** are true:
    *"make the scene mobile-friendly"*, *"reduce the WebGL cost"*, *"why is
    Lighthouse red"*, or a pre-ship pass on a project that carries a scene.
 2. The project actually renders WebGL — `three` (or `@react-three/fiber`) is in
-   `package.json`, or there is a `<canvas>` driven by a render loop.
+   `package.json`, **or** there is a `<canvas>` driven by a hand-written
+   `getContext("webgl")` render loop. Raw WebGL is fully in scope; only §0's
+   measurement primitives change.
 
 If the project has **no** scene, this note does not apply — performance work then
 belongs to [[animation-system]] (spring/ticker cost) and [[seo-metadata]] (bot
@@ -44,21 +46,32 @@ text in `.claude/skills/optimize-3d-scene/SKILL.md`; reference code in
 
 | § | Step | The point |
 |---|------|-----------|
-| 0 | Audit first | Baseline `renderer.info.render` / `.programs` / `.memory`. A change you cannot measure is one you cannot defend. |
-| 1 | Never ship the scene to a bot | Crawlers get a static poster, and the `three` chunk is never fetched or evaluated. |
+| 0 | Audit first, on a valid footing | Baseline `renderer.info.render` / `.programs` / `.memory` — or, on a **raw WebGL** scene, the `getContext` hook you install first. Plus the environment rules: production build, fresh server, `waitUntil: "load"`, counted quantities only. |
+| 1 | Never ship the scene to a bot | Crawlers get a static poster, and the `three` chunk is never fetched or evaluated. The poster is for screenshots and the no-WebGL fallback — *not* layout stability. |
 | 2 | Tier the device once | One module owns what "mobile" means; DPR, counts, bloom and frame budget all read from it. |
-| 3 | Prewarm **everything** in the loader | Compile, link, upload and allocate before handoff — this is the rule that kills micro-freezes. |
+| 3 | Prewarm **everything** in the loader | Compile, link, upload, allocate *and decode* before handoff — the rule that kills micro-freezes. Also where §1's code-split fights §3, and where the preload-credentials trap bites. |
 | 4 | Render only when visible | Gate on `document.hidden` + in-view + canvas actually visible. Biggest saving on a scroll site. |
-| 5 | Frame budget per tier | 30 fps mobile / 45 tablet / uncapped desktop. |
+| 5 | Frame budget per tier | 30 fps mobile / 45 tablet / uncapped desktop — measuring ~26 fps, because of how the ticker throttles. |
 | 6 | Clamp pixel ratio — **and the composer** | A 3× phone renders 9× the fragments. Clamping the renderer but not `EffectComposer` throws the saving away. |
-| 7 | Cut fill, not detail | Particle counts, bloom, additive overdraw, renderer flags, shadows. |
+| 7 | Cut fill, not detail | Particle counts, bloom, additive overdraw, renderer flags, shadows. On a *baked* point buffer, check ordering before truncating. |
 | 8 | Fewest lights the look survives | One key + IBL; a light-count change recompiles every program. |
 | 9 | Transforms on the GPU | Scroll drives a uniform, never a per-object JS loop. |
 | 10 | Smooth scroll progress on touch | Low-pass once upstream (`k ≈ 0.22–0.3`), snap on page jumps. |
 | 11 | No cursor interactivity on mobile | Don't attach the listener; gate on "pointer has actually moved". |
 | 12 | Compress assets | Draco geometry (local decoder), KTX2/Basis textures, per-tier size caps. |
-| 13 | The iOS flicker details | No `resize` on touch, `lvh` sizing, promoted compositor layer, clamped `dt`, dispose on unmount. |
-| 14 | Verify, then write it down | Re-measure §0; program count must be **stable after the loader**. |
+| 13 | The iOS flicker details | No `resize` on touch, **canvas `lvh` / content `dvh`**, promoted compositor layer, clamped `dt`, dispose on unmount. |
+| 14 | Verify, then write it down | Re-measure §0 on the same footing; program count must be **stable after the loader**. |
+
+> [!warning] The three traps that cost the most time in the field
+> 1. **§0 assumes three.js.** A raw WebGL scene has no `renderer.info` — you must
+>    build the instrumentation before you can measure anything, and the skill now
+>    ships the `getContext` hook that does it.
+> 2. **Dev-mode numbers are invalid.** Eager chunk serving fakes a §1 failure;
+>    Strict Mode's double-mount fakes doubled listeners and a halved frame rate.
+>    Always `build` + `start`, and kill the old server first.
+> 3. **§1 breaks §3 by construction.** `dynamic(ssr: false)` means the scene
+>    can't compile until after hydration — measured at 5.0 s against a loader
+>    that lifted at 2.36 s. Gate the loader on scene-ready, not on a duration.
 
 ## Mapping onto this starter
 
@@ -73,7 +86,7 @@ local one rather than porting a second copy:
 | bot detection (§1) | `isBot()` — `src/utils/is-bot.ts`, already used for the SEO path ([[seo-metadata]], ADR-0010). |
 | scroll progress source (§9, §10) | The Lenis scroll store — [[smooth-scroll]]. Read it once per frame inside the ticker; never in a scroll handler that also writes styles. |
 | in-view gating (§4) | `useDynamicInView` / `useInViewRef` — [[hooks]]. Give the observer a ~1 viewport `rootMargin` so the scene is warm on arrival. |
-| viewport sizing (§13) | `heightLvh` / `minHeightLvh` — `src/utils/lvh.ts`. |
+| viewport sizing (§13) | `heightLvh` / `minHeightLvh` — `src/utils/lvh.ts` — for the **canvas**, so a collapsing URL bar never re-allocates the framebuffer. Lay the **content** out in `dvh` instead, or the bottom of the page hides behind that same URL bar. Canvas `lvh`, content `dvh`. |
 | device tiering (§2) | **Not in the starter.** Add `src/lib/scene/device.ts` when a project needs it, and document it in [[utils]]. |
 
 ## How it sits with the hard rules

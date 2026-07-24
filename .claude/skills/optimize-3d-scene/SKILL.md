@@ -1,6 +1,6 @@
 ---
 name: optimize-3d-scene
-description: Optimise a three.js / WebGL scene in a project for mobile and low-end devices — device tiering, prewarm-everything-at-load so nothing compiles mid-scroll, in-view-only render loops, DPR and particle/bloom budgets, GPU-side scroll transforms, compressed textures, and stripping the scene from the bundle for bots. Use when the user says "optimise the 3D", "the scene lags on mobile", "micro freezes / jank on scroll", "make the scene mobile-friendly", "reduce the WebGL cost", or before shipping any project that carries a three.js scene.
+description: Optimise a three.js **or raw WebGL** scene in a project for mobile and low-end devices — device tiering, prewarm-everything-at-load so nothing compiles mid-scroll, in-view-only render loops, DPR and particle/bloom budgets, GPU-side scroll transforms, compressed textures, and stripping the scene from the bundle for bots. Use when the user says "optimise the 3D", "the scene lags on mobile", "micro freezes / jank on scroll", "make the scene mobile-friendly", "reduce the WebGL cost", or before shipping any project that carries a WebGL scene.
 ---
 
 # Optimise a 3D scene
@@ -10,6 +10,10 @@ same tax: a phone renders the same fragments as a workstation, the first frame
 after a shader appears compiles mid-scroll, and the render loop keeps running
 behind three sections of copy nobody is looking at. This skill fixes those in a
 fixed order — cheapest and highest-impact first.
+
+Every step applies to a **raw WebGL** scene as much as a three.js one; only §0's
+measurement primitives differ (three.js hands you `renderer.info`, a raw scene
+you instrument yourself — which you must do *before* you can begin).
 
 **Canonical implementations already in this workspace.** Do not invent new
 shapes; port these. Full code in `references/patterns.md`.
@@ -49,6 +53,52 @@ renderer.info.programs.length   // shader programs; each one is a compile stall 
 renderer.info.memory      // { geometries, textures }
 ```
 
+**Raw WebGL (no three.js).** `renderer.info` only exists on
+`THREE.WebGLRenderer`. A hand-written scene has no equivalent — hook the context
+before app code runs and count it yourself, or you cannot start:
+
+```js
+// page.evaluateOnNewDocument — counts passes, vertices, and *when* programs link
+const gc = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function (kind, attrs) {
+  const ctx = gc.call(this, kind, attrs);
+  if (ctx && kind === "webgl") {
+    window.__gl = ctx;
+    window.__p = { draws: 0, verts: 0, frames: 0, links: [], attrs };
+    const draw = ctx.drawArrays.bind(ctx);
+    ctx.drawArrays = (m, f, c) => { window.__p.draws++; window.__p.verts += c; return draw(m, f, c); };
+    const clear = ctx.clear.bind(ctx);          // one clear = one frame
+    ctx.clear = (m) => { window.__p.frames++; return clear(m); };
+    const link = ctx.linkProgram.bind(ctx);     // §3/§14: these must all precede the loader handoff
+    ctx.linkProgram = (p) => { window.__p.links.push(Math.round(performance.now())); return link(p); };
+  }
+  return ctx;
+};
+```
+
+`draws`/`verts` replace `info.render`, `links.length` replaces
+`programs.length` (and `links` timestamps are what §3 is actually measured
+against), `gl.drawingBufferWidth/Height` is the §6 check, and the captured
+`attrs` is the §7 renderer-flags check. Full harness in `references/patterns.md`.
+
+### The measurement environment (get this wrong and every number below is a lie)
+
+- **Measure a production build, never the dev server.** Dev invalidates §1 (the
+  bundler serves chunks eagerly, so the bot path looks broken when it isn't) and
+  §4/§5 (React Strict Mode double-mounts, doubling listener counts and halving
+  the apparent frame rate). `yarn build && yarn start` — and **kill the old
+  server before rebuilding**, or it holds the port and serves a stale manifest,
+  and you spend an hour debugging 404s and 500s that aren't yours.
+- **Use `waitUntil: "load"` plus a fixed settle.** `networkidle0` never fires
+  against `next start`.
+- **SwiftShader is not a GPU.** Absolute fps out of headless Chrome is
+  meaningless (a desktop measured 14 fps). Only *counted* quantities transfer:
+  draw calls, vertices, drawing-buffer pixels, listener counts, program-link
+  timestamps, main-thread block duration.
+- To observe a §5 frame **cap** at all, the GPU has to stop being the limiter:
+  shrink the viewport to ~320×240 and re-measure. If rAF fires 120×/s and the
+  scene draws 26×/s, the cap is working.
+
 Write the before/after numbers down. A change you cannot measure is a change you
 cannot defend, and every item below costs something in look.
 
@@ -64,8 +114,21 @@ evaluated, because script evaluation time is what the audit is measuring.
   client leaf, so `three` lands in its own chunk and only that chunk is skipped.
 - Plain-HTML projects: `import()` the scene module behind the same UA check.
 
-This applies to desktop and mobile equally. Poster fallback = the first frame,
-as a static image, so the layout never shifts.
+This applies to desktop and mobile equally.
+
+**What the poster is actually for.** Not layout stability — an
+`absolute inset-0` background canvas shifts nothing either way, so don't justify
+it that way. It exists for (a) crawler and social-preview screenshots, which
+otherwise capture an empty box, and (b) the no-WebGL / context-lost fallback.
+Two details:
+
+- If the camera fits to the tighter axis (per-tier framing), one landscape
+  poster re-crops the subject on portrait — the head goes off-frame. Export
+  **two crops** and pick with a `<picture>` media query.
+- `isBot()` reads `headers()`, which opts the whole route out of static
+  prerendering (`○` → `ƒ` in the build output). That is a real trade-off, not a
+  free win: state it. If the route must stay static, do the branch in
+  middleware (rewrite bots to a `/poster` route) instead.
 
 ## 2. Tier the device once, at construction
 
@@ -90,7 +153,8 @@ Also expose, from the same module:
 
 This is the rule that kills micro-freezes. After the loader hands off, the frame
 loop must allocate nothing, compile nothing and upload nothing. A stall on
-scroll is always one of four things:
+scroll — or a frozen loader — is always one of five things. The first four are
+GPU-shaped, which is why the fifth is the one that gets missed:
 
 1. **Shader compile / link.** `renderer.compile(scene, camera)` (or
    `await renderer.compileAsync(scene, camera)`, which does not block the main
@@ -106,6 +170,16 @@ scroll is always one of four things:
 4. **Render-target and post-pass warmup.** Each `EffectComposer` /
    `WebGLRenderTarget` allocates and compiles on its first use. Render one
    throwaway frame through the *complete* chain before handoff.
+5. **CPU decode / parse.** Geometry decode, normal estimation, PCA fits, buffer
+   building — pure work, no GPU involved, and the one most often missed because
+   the other four are all shader-shaped. On a throttled phone it blocks for
+   *seconds* (a measured 3.9 s for 50k plane fits), and it lands while the
+   loader is animating, so the counter freezes and the page ignores input.
+   Chunking across frames keeps the loader alive; a **Worker** removes it from
+   the main thread entirely and is the better answer whenever the work is pure.
+   Transfer the buffers (`postMessage(msg, [buf])`) in *both* directions so
+   nothing is copied, and keep an inline fallback for environments without
+   Workers.
 
 On top of that, precompute CPU-side:
 
@@ -123,7 +197,29 @@ program, any conditional branch, any texture bound only in the finale gets
 touched while the loader still owns the screen.
 
 `stride/src/lib/three/chain-scene.ts` does step 1 after the GLB resolves —
-copy the shape, extend it to all four.
+copy the shape, extend it to all five.
+
+**§1 and §3 pull against each other — check the gap, every time.**
+Code-splitting the scene (§1) means it cannot mount, and therefore cannot
+compile or allocate, until after hydration. On a slow connection that lands
+*after* the loader has handed off, which is exactly the stall §3 exists to
+prevent — measured on Regular 3G + 4× CPU, programs linked at 5.0 s against a
+curtain that lifted at 2.36 s. Neither section warns you on its own. Measure it
+(§0's `linkProgram` timestamps vs the handoff time) and close it deliberately:
+`<link rel="preload">` the scene's data from the HTML so it is in flight during
+parse, and if the gap survives that, gate the loader on **scene-ready** rather
+than on a fixed duration. A time-based preloader is a promise about the network
+you cannot keep.
+
+> [!warning] The `as="fetch"` preload credentials trap
+> An `as="fetch"` preload is only reused when its credentials mode matches the
+> `fetch()` **exactly**. `crossorigin="anonymous"` + `credentials: "omit"` does
+> *not* match, and neither does no-attribute + default — both silently download
+> the asset a second time, with nothing but a console warning ("…not used
+> because the request credentials mode does not match"), and the page looks
+> fine either way. The pair that dedupes is `crossorigin="use-credentials"` +
+> `credentials: "include"`. Verify by counting **network** requests
+> (`page.on("request")`), not `fetch` calls.
 
 ## 4. Render only when visible — the loop is on-demand
 
@@ -152,6 +248,14 @@ halving the frame rate on a phone is genuinely hard to see, and it is the single
 biggest win available there. Throttle per subscriber so capping the scene does
 not slow the springs and DOM animation sharing the loop.
 
+**`1000/30` does not produce 30 fps.** The canonical ticker skips while
+`time - last <= framerate`, so with rAF free-running at ~120 Hz the first tick
+that clears 33.3 ms lands at ~41.7 ms — 26 fps measured, not 30. It errs cheap,
+so it is harmless and the budget still works; just don't quote 30 as measured
+truth. If you want the stated number to match reality, fix it in one place:
+budget `1000/30 - ε`, or change the ticker's comparison to `<`. (And see §0 —
+you can only observe the cap once the GPU isn't the limiter.)
+
 ## 6. Pixel ratio: clamp hard, and clamp the composer too
 
 ```
@@ -177,6 +281,17 @@ In order of what actually costs:
   (`vortex.ts`: 460×420 desktop → 170×190 mobile). Cut the *sparse* end of the
   distribution first — the rim of a disc, the outer shell of a cloud — where it
   shows least. Never cut uniformly.
+
+  **On a pre-baked point buffer that advice has no lever** — your only knob is
+  truncating `drawArrays`, and whether that is safe depends on the buffer's
+  point ordering, which is documented nowhere. **Check it before you cut:**
+  bucket the positions into deciles and compare mean coordinates. If they drift
+  monotonically, the points are spatially ordered and drawing the first N
+  deletes a *region*, not a sample (one measured file was sorted left→right —
+  truncating would have removed half the head). In that case the only real
+  reduction is re-sampling the asset offline into a `points-lite.bin`, not a
+  smaller `drawArrays`. Say that rather than shipping a hole. Script in
+  `references/patterns.md`.
 - **Bloom.** Halve strength and radius on mobile, and **skip the pass entirely
   when it contributes nothing**: `bloomPass.enabled = bloomPass.strength > 0.001`
   saves a full-screen chain per frame. Scale bloom by viewport height too — a
@@ -298,7 +413,12 @@ either dead weight or actively wrong:
   mid-scroll and reads as a whole-scene flash. Size the canvas once on load and
   accept that rotation won't reflow it. Desktop keeps an rAF-coalesced resize.
   (`mycelia/src/lib/scene/canvas3d.ts`.)
-- Size against the **largest** viewport: `h-lvh w-lvw`, not `100vh`.
+- Size the **canvas** against the largest viewport — `h-lvh w-lvw`, not `100vh`
+  — so a collapsing URL bar never re-allocates the framebuffer. **`lvh` is for
+  the canvas, not the layout.** Applying it to the content is a different bug
+  (the bottom of the layout hides behind the URL bar), and it is the naive
+  reading of this line: canvas `lvh`, content `dvh`. The extra canvas bleed is
+  clipped and invisible.
 - Promote the canvas wrapper to its own compositor layer —
   `transform-gpu backface-hidden will-change-transform`. Without it a
   neighbouring fixed element repainting during scroll invalidates the WebGL
@@ -313,9 +433,15 @@ either dead weight or actively wrong:
 
 Re-measure the §0 numbers and report the delta honestly:
 
-- `renderer.info.render.calls` and `.programs.length` before vs after; the
-  program count must be **stable after the loader** — if it grows during scroll,
-  §3 is incomplete and the micro-freezes are still there.
+- `renderer.info.render.calls` and `.programs.length` before vs after (raw
+  WebGL: `window.__p.draws` and `window.__p.links.length`); the program count
+  must be **stable after the loader** — if it grows during scroll, §3 is
+  incomplete and the micro-freezes are still there. On a raw scene the
+  `links` *timestamps* say more than the count: every one must precede the
+  loader handoff, or §1 has pushed compilation past it (see §3).
+- Re-measure on the same footing as the baseline — production build, fresh
+  server, counted quantities only (§0). A dev-mode "after" number proves
+  nothing.
 - Frame timings on a throttled CPU (DevTools 4×/6× slowdown) across a full
   scroll, looking for long tasks.
 - Lighthouse mobile before/after — with §1 in place the bot path should show no

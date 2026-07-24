@@ -10,6 +10,73 @@ consequences. Use [[templates/adr-note]] for new entries. Newest first.
 
 ---
 
+## ADR-0017 — A skill states its preconditions and its own internal conflicts
+
+- **Status:** Accepted
+- **Date:** 2026-07-24
+
+**Context.** `optimize-3d-scene` (ADR-0016) was run for the first time on a real
+scene outside this repo — a raw WebGL project, no three.js, no scroll. The fix
+order held up; what cost hours was everything the skill left implicit. Ranked by
+time burned:
+
+1. **§0 could not be executed at all.** `renderer.info.render` /
+   `.programs.length` exist only on `THREE.WebGLRenderer`, yet the skill's own
+   title says "three.js / WebGL". The agent had to invent instrumentation before
+   it could take a baseline.
+2. **The measurement environment was never stated**, and all three failure modes
+   fired: dev-mode numbers are invalid (eager chunk serving faked a §1 failure;
+   Strict Mode's double-mount faked 2 listeners and a halved frame rate), a
+   stale `next start` on the port served 500s that read as a code bug, and
+   `waitUntil: "networkidle0"` never fires against `next start`.
+3. **§1 actively breaks §3.** `dynamic(ssr: false)` means the scene cannot
+   compile until after hydration; on Regular 3G + 4× CPU programs linked at
+   5.0 s against a loader that lifted at 2.36 s. Two correct steps, silently
+   contradicting each other.
+4. **§3's stall list was GPU-only** — all four causes shader/texture/target —
+   but the worst stall measured was a 3.9 s main-thread CPU decode. Workers
+   appeared nowhere in the skill.
+
+Plus four smaller ones: the `as="fetch"` preload credentials trap (only
+`use-credentials` + `include` dedupes; the other pairings silently
+double-download), §5's `1000/30` actually measuring ~26 fps because of how the
+ticker throttles, §7's "cut the sparse end" having no lever on a *baked* point
+buffer, and §13's `lvh` being read as applying to the layout when it is for the
+canvas only.
+
+**Decision.** Fold all of it back into the skill, and adopt two rules for how
+this and every future skill is written:
+
+- **A step states its preconditions.** §0 now ships a `getContext` hook that
+  gives a raw WebGL scene the counted equivalents of `renderer.info`
+  (`draws` / `verts` / `links[]` timestamps / captured `attrs`), and a
+  *measurement environment* block: production build, kill the old server first,
+  `waitUntil: "load"`, and — because SwiftShader is not a GPU — only counted
+  quantities transfer, never absolute fps.
+- **A step names where it fights another step.** §3 now carries the §1 conflict
+  explicitly, with the measurement that exposes it (link timestamps vs handoff
+  time) and the fix (preload the data from the HTML; gate the loader on
+  scene-ready, not on a duration).
+
+Also added: §3 gains a fifth stall cause (CPU decode → Worker, with
+transfer-in-both-directions) and the preload-credentials warning; §5 states the
+~26 fps reality; §7 requires a decile ordering check before truncating a baked
+buffer; §13 splits canvas `lvh` from content `dvh`; §1's poster is rejustified
+(crawler screenshots and the no-WebGL fallback — *not* layout stability) with
+two crops for tighter-axis framing and the `headers()` → `○`→`ƒ` prerender
+trade-off named.
+
+**Consequences.** The skill now works on a scene with no three.js in it, and its
+first section can be executed instead of merely read. The cost is a longer §0 —
+an agent must build instrumentation and a production build before touching
+anything — which is the correct tax: every number the skill asks for later is
+worthless without it. Deliberately kept unchanged, because the field run
+confirmed them: the cheapest-first ordering, the canonical-file table, and
+"don't invent new shapes; port these" — the `device.ts` port dropped in clean
+and is most of why that run went as fast as it did.
+
+---
+
 ## ADR-0016 — Skills are registered in the vault, not just dropped in `.claude/`
 
 - **Status:** Accepted

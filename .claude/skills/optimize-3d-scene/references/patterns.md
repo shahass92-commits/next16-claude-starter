@@ -258,6 +258,48 @@ async function buildInChunks<T>(
 }
 ```
 
+### Move pure CPU decode off the main thread entirely
+
+Chunking (above) keeps the loader animating; a Worker removes the work from the
+main thread altogether, and is the better answer whenever the work is *pure* —
+geometry decode, normal estimation, PCA plane fits, buffer building. Measured:
+50k plane fits blocked the main thread for 3.9 s on a throttled phone, during
+the loader, freezing its counter and dropping input.
+
+```ts
+// worker.ts — no DOM, no three.js import; just typed arrays in and out.
+self.onmessage = (e: MessageEvent<{ positions: ArrayBuffer; count: number }>) => {
+  const positions = new Float32Array(e.data.positions);
+  const normals = new Float32Array(positions.length);
+  // …the expensive pure transform…
+  // Transfer *back* as well, or the result is structured-cloned (a full copy).
+  self.postMessage({ normals: normals.buffer }, [normals.buffer]);
+};
+```
+
+```ts
+// caller — transfer in both directions, and keep an inline fallback.
+export async function buildNormals(positions: Float32Array): Promise<Float32Array> {
+  if (typeof Worker === "undefined") return buildNormalsInline(positions);
+
+  const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+  try {
+    return await new Promise<Float32Array>((resolve, reject) => {
+      worker.onmessage = (e) => resolve(new Float32Array(e.data.normals));
+      worker.onerror = reject;
+      // `positions.buffer` is neutered here — hand over a copy if the caller still needs it.
+      worker.postMessage({ positions: positions.buffer, count: positions.length / 3 },
+                         [positions.buffer]);
+    });
+  } finally {
+    worker.terminate();
+  }
+}
+```
+
+Note the two transfer lists. Miss either one and a 50 MB buffer is copied, which
+is its own main-thread block — the thing you moved the work to avoid.
+
 ### Program-variant discipline
 
 ```ts
@@ -550,6 +592,34 @@ out on a short one:
 this.matPoints.uniforms.uSize.value = BASE_SIZE * viewScale();
 ```
 
+### Before truncating a *baked* point buffer, check its ordering
+
+With a pre-quantised point file the only lever is drawing fewer vertices — and
+whether that is a *sample* or a *hole* depends on the buffer's point ordering,
+which no exporter documents. Bucket into deciles and compare mean coordinates:
+monotonic drift means the points are spatially ordered, so the first N is a
+region, not a sample.
+
+```js
+// node check-ordering.mjs points.bin   → run once, before you touch drawArrays.
+import { readFile } from "node:fs/promises";
+
+const buf = new Float32Array((await readFile(process.argv[2])).buffer);
+const n = buf.length / 3;
+for (let d = 0; d < 10; d++) {
+  const lo = Math.floor((d * n) / 10), hi = Math.floor(((d + 1) * n) / 10);
+  let x = 0, y = 0, z = 0;
+  for (let i = lo; i < hi; i++) { x += buf[i * 3]; y += buf[i * 3 + 1]; z += buf[i * 3 + 2]; }
+  const k = hi - lo;
+  console.log(d, (x / k).toFixed(3), (y / k).toFixed(3), (z / k).toFixed(3));
+}
+```
+
+A monotonic column ⇒ **do not truncate.** One measured file was sorted
+left→right, so drawing the first half would have deleted half the head. The only
+real reduction there is re-sampling the asset offline (a `points-lite.bin`,
+every k-th point or a Poisson thin), shipped as a per-tier asset like any other.
+
 ---
 
 ## 9. Bloom / composer
@@ -824,4 +894,86 @@ let last = performance.now(), worst = 0;
   requestAnimationFrame(probe);
 })();
 setInterval(() => { console.log("worst frame (ms):", worst.toFixed(1)); worst = 0; }, 2000);
+```
+
+### Raw WebGL — build the instrumentation first
+
+A hand-written scene has no `renderer.info`, so there is nothing to read until
+you make it. Hook the context **before app code runs** and count it yourself.
+This is the §0 gate for any non-three.js scene: without it you cannot start.
+
+```js
+// harness.mjs — puppeteer
+import puppeteer from "puppeteer";
+
+const browser = await puppeteer.launch({ headless: "new", args: ["--use-gl=swiftshader"] });
+const page = await browser.newPage();
+
+const requests = [];                       // §12 / preload dedupe: count NETWORK, not fetch()
+page.on("request", (r) => requests.push(r.url()));
+
+await page.evaluateOnNewDocument(() => {
+  const gc = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (kind, attrs) {
+    const ctx = gc.call(this, kind, attrs);
+    if (ctx && kind === "webgl") {
+      window.__gl = ctx;                   // for drawingBufferWidth/Height later
+      window.__p = { draws: 0, verts: 0, frames: 0, links: [], attrs };
+      const draw = ctx.drawArrays.bind(ctx);
+      ctx.drawArrays = (m, f, c) => { window.__p.draws++; window.__p.verts += c; return draw(m, f, c); };
+      const clear = ctx.clear.bind(ctx);
+      ctx.clear = (m) => { window.__p.frames++; return clear(m); };
+      const link = ctx.linkProgram.bind(ctx);
+      ctx.linkProgram = (p) => { window.__p.links.push(Math.round(performance.now())); return link(p); };
+    }
+    return ctx;
+  };
+});
+
+// `networkidle0` never fires against `next start` — use load + a fixed settle.
+await page.goto("http://localhost:3000", { waitUntil: "load" });
+await new Promise((r) => setTimeout(r, 6000));
+
+console.log(await page.evaluate(() => ({
+  draws: window.__p.draws,
+  verts: window.__p.verts,
+  frames: window.__p.frames,              // counted, not timed — see the note below
+  links: window.__p.links,                // §3: every one must precede the loader handoff
+  attrs: window.__p.attrs,                // §7 renderer flags
+  buffer: [window.__gl.drawingBufferWidth, window.__gl.drawingBufferHeight],  // §6
+})));
+```
+
+| three.js | raw WebGL equivalent |
+|---|---|
+| `renderer.info.render.calls` | `__p.draws` |
+| `renderer.info.render.points/triangles` | `__p.verts` |
+| `renderer.info.programs.length` | `__p.links.length` — and the timestamps are the §3 evidence |
+| `renderer.getPixelRatio()` / target size | `gl.drawingBufferWidth × Height` |
+| renderer constructor options | the captured `attrs` (§7 flags) |
+
+### Environment rules — get these wrong and every number is a lie
+
+1. **Production build only.** Dev invalidates §1 (chunks are served eagerly, so
+   the bot path looks broken when it isn't) and §4/§5 (Strict Mode
+   double-mounts: 2 listeners where there is 1, and a halved apparent fps).
+2. **Kill the old server before rebuilding.** A stale `next start` holding the
+   port serves an old manifest — 404s and 500s that read exactly like a code bug.
+3. **`waitUntil: "load"` + a fixed settle.** `networkidle0` never fires here.
+4. **SwiftShader is not a GPU.** Absolute fps from headless Chrome is
+   meaningless (14 fps measured on a desktop). Only *counted* quantities
+   transfer: draws, vertices, buffer pixels, listener counts, link timestamps,
+   block duration.
+5. **To see a frame cap (§5), remove the GPU as the limiter**: shrink the
+   viewport to ~320×240 and re-measure. rAF at 120/s against 26 draws/s is the
+   cap working.
+
+```js
+// Listener count (§4/§11) — install before app code, same evaluateOnNewDocument.
+const add = EventTarget.prototype.addEventListener;
+window.__l = {};
+EventTarget.prototype.addEventListener = function (t, f, o) {
+  window.__l[t] = (window.__l[t] || 0) + 1;
+  return add.call(this, t, f, o);
+};
 ```
